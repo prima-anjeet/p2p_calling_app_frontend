@@ -13,70 +13,86 @@ interface WebRTCReturn {
   createAnswer: (from: string, offer: RTCSessionDescriptionInit) => Promise<void>;
   addIceCandidate: (candidate: RTCIceCandidateInit) => void;
   cleanup: () => void;
+  startLocalStream: (type: 'audio' | 'video') => Promise<void>;
 }
 
-export default function useWebRTC(socket: Socket | null): WebRTCReturn {
+const useWebRTC = (socket: Socket | null): WebRTCReturn => {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const remotePeerIdRef = useRef<string | null>(null);
+  // Keep track of current stream type
+  const streamTypeRef = useRef<'audio' | 'video'>('video');
+
+  // Ref to hold the latest local stream to access in functions without dependency loops
+  const localStreamRef = useRef<MediaStream | null>(null);
+
+  const startLocalStream = async (type: 'audio' | 'video') => {
+    if (typeof window !== 'undefined' && (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)) {
+      console.error("Media devices API not supported.");
+      return;
+    }
+    
+    // Stop existing tracks if any to release camera/mic
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+    }
+
+    try {
+      const constraints: MediaStreamConstraints = {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        },
+        video: type === 'video' ? {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 }
+        } : false
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      setLocalStream(stream);
+      localStreamRef.current = stream; // Update ref
+      streamTypeRef.current = type;
+      
+    } catch (error) {
+       console.error("Error accessing media devices:", error);
+    }
+  };
 
   useEffect(() => {
     // Initialize remoteStream on client side
     setRemoteStream(new MediaStream());
-
-    // Get media - Why: Access camera/mic with optimized constraints. Audio-first with echo/noise suppression. Video adaptive for mobile CPU/network.
-    const getMedia = async () => {
-      if (typeof window !== 'undefined' && (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)) {
-        console.error("Media devices API not supported. Use HTTPS or localhost.");
-        return;
-      }
-      try {
-        const constraints: MediaStreamConstraints = {
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          },
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            frameRate: { ideal: 30 }
-          }
-        };
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        setLocalStream(stream);
-      } catch (error) {
-         console.error("Error accessing media devices:", error);
-      }
-    };
-    getMedia();
+    
+    // Default to video preview on mount
+    startLocalStream('video');
 
     return () => cleanup();
   }, []);
 
   const createPeerConnection = (): RTCPeerConnection => {
-    // RTCPeerConnection setup - Why: Core WebRTC object for P2P connection. Uses STUN/TURN for NAT traversal. Ensures DTLS-SRTP encryption (built-in). Media flows P2P only after negotiation.
+    // RTCPeerConnection setup
     const iceServers: RTCIceServer[] = JSON.parse(process.env.NEXT_PUBLIC_ICE_SERVERS!);
     const pc = new RTCPeerConnection({ iceServers });
 
-    // Add local tracks
-    if (localStream) {
-      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+    // Add local tracks - Use REF to ensure we get the latest stream even if closure is stale
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        if (localStreamRef.current) {
+             pc.addTrack(track, localStreamRef.current);
+        }
+      });
     }
 
     // Handle remote tracks
     pc.ontrack = (event) => {
-      // Why: Robust track handling. Checks for existing stream (WebRTC standard) 
-      // AND handles fallback by accumulating tracks manually to ensure both audio/video exist.
       setRemoteStream(prevStream => {
            let newStream;
            if (event.streams && event.streams[0]) {
-               // Use the browser-provided stream which should contain all tracks
                newStream = new MediaStream(event.streams[0].getTracks());
            } else {
-               // Fallback: Create new stream from previous tracks + new track
-               // Handle case where prevStream might be null (though unlikely in this flow given calling context, but good for safety)
                const tracks = prevStream ? prevStream.getTracks() : [];
                newStream = new MediaStream(tracks);
                newStream.addTrack(event.track);
@@ -84,6 +100,7 @@ export default function useWebRTC(socket: Socket | null): WebRTCReturn {
            return newStream;
       });
     };
+
 
     // ICE candidate - Why: Exchange via socket for connectivity.
     pc.onicecandidate = (event) => {
@@ -118,8 +135,10 @@ export default function useWebRTC(socket: Socket | null): WebRTCReturn {
     // Actually, createPeerConnection attaches tracks IF localStream exists.
     // If it doesn't (race condition), we send an offer with no tracks.
     // Solution: If localStream is available, explicit ensure tracks are added.
-    if (localStream && pc.getSenders().length === 0) {
-       localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+    if (localStreamRef.current && pc.getSenders().length === 0) {
+       localStreamRef.current.getTracks().forEach(track => {
+            if (localStreamRef.current) pc.addTrack(track, localStreamRef.current)
+       });
     }
 
     const offer = await pc.createOffer();
@@ -131,9 +150,11 @@ export default function useWebRTC(socket: Socket | null): WebRTCReturn {
     remotePeerIdRef.current = from;
     const pc = createPeerConnection();
 
-    // Ensure tracks are added for answer too
-    if (localStream && pc.getSenders().length === 0) {
-       localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+    // Ensure tracks are added for answer too - Use REF
+    if (localStreamRef.current && pc.getSenders().length === 0) {
+       localStreamRef.current.getTracks().forEach(track => {
+            if (localStreamRef.current) pc.addTrack(track, localStreamRef.current);
+       });
     }
 
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
@@ -160,14 +181,25 @@ export default function useWebRTC(socket: Socket | null): WebRTCReturn {
   useEffect(() => {
     return () => {
       // Full cleanup on unmount
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
       }
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
       }
     };
-  }, [localStream]);
+  }, []);
 
-  return { localStream, remoteStream, peerConnection: peerConnectionRef.current, createOffer, createAnswer, addIceCandidate, cleanup };
-}
+  return { 
+    localStream, 
+    remoteStream, 
+    peerConnection: peerConnectionRef.current, 
+    createOffer, 
+    createAnswer, 
+    addIceCandidate, 
+    cleanup,
+    startLocalStream
+  };
+};
+
+export default useWebRTC;

@@ -1,15 +1,14 @@
-// Why: Enhanced UI for active call. Mute, camera, speaker controls. Responsive PIP layout.
 'use client';
-
 import { useEffect, useRef, useState } from 'react';
 
 interface VideoCallProps {
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
   onEnd: () => void;
+  callType?: 'audio' | 'video';
 }
 
-export default function VideoCall({ localStream, remoteStream, onEnd }: VideoCallProps) {
+export default function VideoCall({ localStream, remoteStream, onEnd, callType = 'video' }: VideoCallProps) {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const [muted, setMuted] = useState<boolean>(false);
@@ -17,8 +16,10 @@ export default function VideoCall({ localStream, remoteStream, onEnd }: VideoCal
   const [speakerOn, setSpeakerOn] = useState<boolean>(true);
   const [timer, setTimer] = useState<number>(0);
 
+  const isAudioOnly = callType === 'audio';
+
   useEffect(() => {
-    if (localVideoRef.current && localStream) {
+    if (localVideoRef.current && localStream && !isAudioOnly) {
       localVideoRef.current.srcObject = localStream;
       localVideoRef.current.play().catch(e => console.error("Local play error", e));
     }
@@ -30,7 +31,7 @@ export default function VideoCall({ localStream, remoteStream, onEnd }: VideoCal
 
     const interval = setInterval(() => setTimer(t => t + 1), 1000);
     return () => clearInterval(interval);
-  }, [localStream, remoteStream]);
+  }, [localStream, remoteStream, isAudioOnly]);
 
   const toggleMute = () => {
     if (localStream) {
@@ -71,30 +72,45 @@ export default function VideoCall({ localStream, remoteStream, onEnd }: VideoCal
       {/* Main Container */}
       <div className="relative flex-1 bg-black flex items-center justify-center overflow-hidden">
         
-        {/* Remote Video (Full Screen) */}
-        <video 
-          ref={remoteVideoRef} 
-          autoPlay 
-          playsInline 
-          className="w-full h-full object-cover"
-        />
+        {/* Remote Video / Audio UI */}
+        {isAudioOnly ? (
+             <div className="flex flex-col items-center justify-center p-8 animate-pulse text-center">
+                <div className="w-32 h-32 md:w-48 md:h-48 bg-gray-800 rounded-full flex items-center justify-center mb-6 shadow-2xl border-4 border-gray-700">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-16 h-16 md:w-24 md:h-24 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                    </svg>
+                </div>
+                <h3 className="text-xl md:text-2xl font-bold text-gray-200">Connected</h3>
+                {/* Hidden video element to ensure audio plays */}
+                <video ref={remoteVideoRef} autoPlay playsInline className="absolute w-0 h-0 opacity-0 pointer-events-none" />
+             </div>
+        ) : (
+             <video 
+               ref={remoteVideoRef} 
+               autoPlay 
+               playsInline 
+               className="w-full h-full object-cover"
+             />
+        )}
 
         {/* Local Video (PIP) */}
-        <div className="absolute bottom-24 right-4 w-32 md:w-48 aspect-video bg-gray-800 rounded-lg overflow-hidden border-2 border-gray-700 shadow-xl z-20">
-           <video 
-             ref={localVideoRef} 
-             autoPlay 
-             playsInline 
-             muted 
-             className={`w-full h-full object-cover transform scale-x-[-1] ${cameraOff ? 'opacity-0' : 'opacity-100'}`}
-           />
-           {cameraOff && (
-             <div className="absolute inset-0 flex items-center justify-center text-white text-xs font-medium">
-               Camera Off
-             </div>
-           )}
-           <div className="absolute bottom-1 left-2 text-[10px] text-white/70 bg-black/30 px-1 rounded">You</div>
-        </div>
+        {!isAudioOnly && (
+            <div className="absolute bottom-24 right-4 w-32 md:w-48 aspect-video bg-gray-800 rounded-lg overflow-hidden border-2 border-gray-700 shadow-xl z-20">
+            <video 
+                ref={localVideoRef} 
+                autoPlay 
+                playsInline 
+                muted 
+                className={`w-full h-full object-cover transform scale-x-[-1] ${cameraOff ? 'opacity-0' : 'opacity-100'}`}
+            />
+            {cameraOff && (
+                <div className="absolute inset-0 flex items-center justify-center text-white text-xs font-medium">
+                Camera Off
+                </div>
+            )}
+            <div className="absolute bottom-1 left-2 text-[10px] text-white/70 bg-black/30 px-1 rounded">You</div>
+            </div>
+        )}
 
         {/* Call Status / Timer */}
         <div className="absolute top-4 left-4 bg-black/40 px-3 py-1.5 rounded-full text-white text-sm backdrop-blur-sm border border-white/10 z-20">
@@ -121,18 +137,20 @@ export default function VideoCall({ localStream, remoteStream, onEnd }: VideoCal
           )}
         </button>
 
-        {/* Toggle Camera */}
-        <button 
-          onClick={toggleCamera}
-          className={`p-4 rounded-full transition-all duration-200 ${cameraOff ? 'bg-red-500/20 text-red-500' : 'bg-gray-800 text-white hover:bg-gray-700'}`}
-          title={cameraOff ? "Turn Camera On" : "Turn Camera Off"}
-        >
-          {cameraOff ? (
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M21 21l-3.5-3.5m-2-2l-2-2"></path><path d="M7 7l-2-2"></path><path d="M22 17v-8l-5-4v2.5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h7"></path></svg>
-          ) : (
-             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-          )}
-        </button>
+        {/* Toggle Camera - Hide for audio-only */}
+        {!isAudioOnly && (
+            <button 
+            onClick={toggleCamera}
+            className={`p-4 rounded-full transition-all duration-200 ${cameraOff ? 'bg-red-500/20 text-red-500' : 'bg-gray-800 text-white hover:bg-gray-700'}`}
+            title={cameraOff ? "Turn Camera On" : "Turn Camera Off"}
+            >
+            {cameraOff ? (
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M21 21l-3.5-3.5m-2-2l-2-2"></path><path d="M7 7l-2-2"></path><path d="M22 17v-8l-5-4v2.5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h7"></path></svg>
+            ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+            )}
+            </button>
+        )}
 
         {/* Toggle Speaker (Audio) */}
         <button 

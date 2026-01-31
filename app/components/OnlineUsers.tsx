@@ -1,9 +1,16 @@
-// Why: Component to list online users with call buttons. Responsive for mobile.
-import { UserCircleIcon, PhoneIcon } from '@heroicons/react/24/solid';
+// Why: Component to list all users with call buttons. Responsive for mobile.
+import { UserCircleIcon, PhoneIcon, VideoCameraIcon } from '@heroicons/react/24/solid';
+
+interface User {
+  userId: string;
+  name: string;
+  email?: string;
+  isOnline: boolean;
+}
 
 interface OnlineUsersProps {
-  users: { userId: string; name: string }[];
-  onCall: (calleeId: string) => void;
+  users: User[];
+  onCall: (calleeId: string, type: 'audio' | 'video') => void;
 }
 
 export default function OnlineUsers({ users, onCall }: OnlineUsersProps) {
@@ -11,8 +18,8 @@ export default function OnlineUsers({ users, onCall }: OnlineUsersProps) {
     return (
       <div className="flex flex-col items-center justify-center p-8 text-center text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-200">
         <UserCircleIcon className="w-12 h-12 mb-2 text-gray-300" />
-        <p className="text-sm font-medium">No one else is online right now.</p>
-        <p className="text-xs mt-1 text-gray-400">Invite friends to start calling!</p>
+        <p className="text-sm font-medium">No other users found.</p>
+        <p className="text-xs mt-1 text-gray-400">Invite friends to join!</p>
       </div>
     );
   }
@@ -33,22 +40,50 @@ export default function OnlineUsers({ users, onCall }: OnlineUsersProps) {
                   `}>
                     {user.name ? user.name.substring(0, 2).toUpperCase() : '??'}
                   </div>
-                  <span className="absolute bottom-0 right-0 block h-3.5 w-3.5 rounded-full bg-green-500 ring-2 ring-white"></span>
+                  {user.isOnline ? (
+                    <span className="absolute bottom-0 right-0 block h-3.5 w-3.5 rounded-full bg-green-500 ring-2 ring-white" title="Online"></span>
+                  ) : (
+                    <span className="absolute bottom-0 right-0 block h-3.5 w-3.5 rounded-full bg-gray-400 ring-2 ring-white" title="Offline"></span>
+                  )}
+                  
                 </div>
                 
                 <div className="flex flex-col">
                   <span className="font-semibold text-gray-800 text-sm md:text-base">{user.name || 'Unknown User'}</span>
-                  <span className="text-xs text-green-600 font-medium bg-green-50 w-fit px-2 py-0.5 rounded-full">Available</span>
+                  {user.isOnline ? (
+                    <span className="text-xs text-green-600 font-medium bg-green-50 w-fit px-2 py-0.5 rounded-full">Available</span>
+                  ) : (
+                    <span className="text-xs text-gray-500 font-medium bg-gray-100 w-fit px-2 py-0.5 rounded-full">Offline</span>
+                  )}
                 </div>
             </div>
 
-            <button 
-              onClick={() => onCall(user.userId)} 
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white rounded-lg transition-all duration-200 font-medium text-sm group-hover:shadow-indigo-200 group-hover:shadow-lg"
-            >
-              <PhoneIcon className="w-4 h-4" />
-              <span>Call</span>
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => onCall(user.userId, 'audio')} 
+                className={`flex items-center justify-center p-2 rounded-lg transition-all duration-200 font-medium text-sm transition-colors border
+                    ${user.isOnline 
+                        ? 'bg-white border-green-200 text-green-600 hover:bg-green-50 hover:border-green-300 hover:shadow-sm' 
+                        : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'}
+                `}
+                title="Audio Call"
+              >
+                <PhoneIcon className="w-5 h-5" />
+              </button>
+              
+              <button 
+                onClick={() => onCall(user.userId, 'video')} 
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 font-medium text-sm hover:shadow-lg
+                    ${user.isOnline 
+                        ? 'bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white group-hover:shadow-indigo-200' 
+                        : 'bg-gray-50 hover:bg-gray-200 text-gray-600 border border-gray-200'}
+                `}
+                title={user.isOnline ? "Video Call" : "Notify User"}
+              >
+                <VideoCameraIcon className="w-5 h-5" />
+                <span className="hidden sm:inline">{user.isOnline ? 'Video' : 'Notify'}</span>
+              </button>
+            </div>
           </div>
         ))}
       </div>

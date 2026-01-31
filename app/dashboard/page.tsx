@@ -1,4 +1,3 @@
-// Why: Main dashboard showing online users and handling calls. Integrates socket for presence and push setup.
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
@@ -14,25 +13,45 @@ interface IncomingCall {
   callerId: string;
   callerName: string;
   callId: string;
+  callType?: 'audio' | 'video';
 }
 
 interface ActiveCall {
   peerId: string;
   callId: string;
   isCaller: boolean;
+  callType: 'audio' | 'video';
 }
 
 export default function Dashboard() {
   const { user, loading, logout } = useAuth();
   const router = useRouter();
   const socket = useSocket();
-  const [onlineUsers, setOnlineUsers] = useState<{ userId: string; name: string }[]>([]);
+  const [allUsers, setAllUsers] = useState<{ _id: string; name: string; email: string }[]>([]);
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
   const [isCalling, setIsCalling] = useState<boolean>(false);
   const [calleeIdForCancel, setCalleeIdForCancel] = useState<string | null>(null);
-  const { localStream, remoteStream, peerConnection, createOffer, createAnswer, addIceCandidate, cleanup } = useWebRTC(socket);
+  const { localStream, remoteStream, peerConnection, createOffer, createAnswer, addIceCandidate, cleanup, startLocalStream } = useWebRTC(socket);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchUsers = async () => {
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/users`, {
+          credentials: 'include',
+        });
+        if (res.ok) {
+          setAllUsers(await res.json());
+        }
+      } catch (err) {
+        console.error('Failed to fetch users', err);
+      }
+    };
+    fetchUsers();
+  }, [user]);
 
   useEffect(() => {
     if (previewVideoRef.current && localStream && !activeCall) {
@@ -65,24 +84,31 @@ export default function Dashboard() {
     setupPush();
 
     // Socket listeners
-    socket.on('online-users', (users: { userId: string; name: string }[]) => setOnlineUsers(users));
+    socket.on('online-users', (users: { userId: string; name: string }[]) => {
+      setOnlineUserIds(new Set(users.map(u => u.userId)));
+    });
 
     socket.on('incoming-call', (data: IncomingCall) => {
       setIncomingCall(data);
-      // Play ringing sound - Why: User-interaction compliant. Assume prior interaction; on mobile web, browsers block autoplay without interaction.
-      const audio = new Audio('/ringtone.mp3'); // Add your ringtone file
-      audio.play().catch(() => console.log('Ringing blocked; needs interaction'));
     });
+
+    // Request any pending calls now that listeners are set up
+    // Wait slightly to ensure socket is ready
+    const timer = setTimeout(() => {
+        socket.emit('check-pending-calls');
+    }, 1000);
     
     socket.on('call-cancelled', () => {
         setIncomingCall(null);
         // Optional: Stop ringtone if playing loop
     });
 
-    socket.on('call-accepted', ({ calleeId, callId }: { calleeId: string; callId: string }) => {
+    socket.on('call-accepted', ({ calleeId, callId, callType }: { calleeId: string; callId: string; callType?: 'audio'|'video' }) => {
       setIsCalling(false); // Stop "Calling..." UI
       setCalleeIdForCancel(null);
-      setActiveCall({ peerId: calleeId, callId, isCaller: true });
+      // The caller initiated the call, so they already set up the stream with correct type in handleCall
+      // But we should store the type in activeCall state
+      setActiveCall({ peerId: calleeId, callId, isCaller: true, callType: callType || 'video' });
       createOffer(calleeId); // Start WebRTC as caller
     });
 
@@ -111,6 +137,7 @@ export default function Dashboard() {
     });
 
     return () => {
+      clearTimeout(timer);
       socket.off('online-users');
       // ... cleanup omitted ...
       socket.off('incoming-call');
@@ -124,11 +151,12 @@ export default function Dashboard() {
     };
   }, [user, socket, peerConnection, createOffer, createAnswer, addIceCandidate, cleanup]);
 
-  const handleCall = (calleeId: string) => {
+  const handleCall = (calleeId: string, callType: 'audio' | 'video') => {
     if (!socket) return;
+    startLocalStream(callType);
     setIsCalling(true);
     setCalleeIdForCancel(calleeId);
-    socket.emit('initiate-call', { calleeId });
+    socket.emit('initiate-call', { calleeId, callType });
   };
 
   const cancelCall = () => {
@@ -143,8 +171,11 @@ export default function Dashboard() {
 
   const acceptCall = () => {
     if (!incomingCall || !socket) return;
+    const type = incomingCall.callType || 'video';
+    startLocalStream(type);
+    
     socket.emit('accept-call', { callId: incomingCall.callId, callerId: incomingCall.callerId });
-    setActiveCall({ peerId: incomingCall.callerId, callId: incomingCall.callId, isCaller: false });
+    setActiveCall({ peerId: incomingCall.callerId, callId: incomingCall.callId, isCaller: false, callType: type });
     setIncomingCall(null);
     // Note: On mobile web, no auto-answer; user must manually accept via UI.
   };
@@ -219,14 +250,22 @@ export default function Dashboard() {
 
         {/* Right Column: Online Users */}
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 h-fit">
-            <h2 className="text-lg font-semibold mb-4 text-gray-800">Online Users</h2>
+            <h2 className="text-lg font-semibold mb-4 text-gray-800">Contacts</h2>
             <div className="space-y-2">
-              <OnlineUsers users={onlineUsers.filter(u => u.userId !== user._id)} onCall={handleCall} />
+              <OnlineUsers 
+                users={allUsers.map(u => ({
+                  userId: u._id,
+                  name: u.name,
+                  email: u.email,
+                  isOnline: onlineUserIds.has(u._id)
+                }))} 
+                onCall={handleCall} 
+              />
             </div>
         </div>
       </div>
 
-      {incomingCall && <CallModal callerName={incomingCall.callerName} onAccept={acceptCall} onReject={rejectCall} />}
+      {incomingCall && <CallModal callerName={incomingCall.callerName} callType={incomingCall.callType} onAccept={acceptCall} onReject={rejectCall} />}
       {isCalling && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
              <div className="text-center">
@@ -244,7 +283,7 @@ export default function Dashboard() {
              </div>
           </div>
       )}
-      {activeCall && <VideoCall localStream={localStream} remoteStream={remoteStream} onEnd={endCall} />}
+      {activeCall && <VideoCall localStream={localStream} remoteStream={remoteStream} onEnd={endCall} callType={activeCall.callType} />}
     </div>
   );
 }

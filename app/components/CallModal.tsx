@@ -6,22 +6,23 @@ interface CallModalProps {
   callerName: string;
   onAccept: () => void;
   onReject: () => void;
+  callType?: 'audio' | 'video';
 }
 
-export default function CallModal({ callerName, onAccept, onReject }: CallModalProps) {
+export default function CallModal({ callerName, onAccept, onReject, callType = 'video' }: CallModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8 max-w-sm w-full transform transition-all border border-gray-100 dark:border-gray-700">
         <div className="text-center space-y-6">
           <div className="relative inline-block">
              <div className="w-24 h-24 bg-gradient-to-tr from-blue-100 to-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce-slow">
-                <span className="text-3xl">📞</span>
+                <span className="text-3xl">{callType === 'audio' ? '🎤' : '📹'}</span>
              </div>
              <span className="absolute top-0 right-0 w-6 h-6 bg-green-500 rounded-full border-2 border-white animate-pulse"></span>
           </div>
 
           <div>
-             <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Incoming Call</h3>
+             <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Incoming {callType === 'audio' ? 'Audio' : 'Video'} Call</h3>
              <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">from <span className="text-indigo-600 dark:text-indigo-400">{callerName}</span></p>
           </div>
 
