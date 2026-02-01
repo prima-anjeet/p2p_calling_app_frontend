@@ -134,6 +134,7 @@ export default function Dashboard() {
     socket.on('call-ended', () => {
       setIsCalling(false); // Reset calling state just in case
       cleanup();
+      setActiveCall(null);
     });
 
     return () => {
