@@ -1,4 +1,3 @@
-// Why: Styled Login page with glassmorphism and toast notifications.
 'use client';
 
 import { useState, FormEvent } from 'react';
@@ -37,33 +36,33 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 via-purple-900 to-black text-white p-4">
-      <div className="bg-white/10 backdrop-blur-lg border border-white/20 p-8 rounded-2xl shadow-2xl w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-white-800 text-gray-900 p-4">
+      <div className="bg-white p-8 rounded-2xl w-full max-w-md border border-gray-400">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-pink-500 to-violet-500 mb-2">Welcome Back</h1>
-          <p className="text-gray-400">Sign in to continue connecting</p>
+          <h1 className="text-3xl font-bold mb-2 text-gray-900">Welcome Back</h1>
+          <p className="text-gray-500">Sign in to continue connecting</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Email Address</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
             <input 
               type="email" 
               value={email} 
               onChange={(e) => setEmail(e.target.value)} 
-              className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition text-white placeholder-gray-500"
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-gray-900 placeholder-gray-400"
               placeholder="you@example.com"
               required 
             />
           </div>
           
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Password</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input 
               type="password" 
               value={password} 
               onChange={(e) => setPassword(e.target.value)} 
-              className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition text-white placeholder-gray-500"
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-gray-900 placeholder-gray-400"
               placeholder="••••••••"
               required 
             />
@@ -72,15 +71,15 @@ export default function Login() {
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-bold text-lg hover:from-indigo-700 hover:to-purple-700 transition transform hover:scale-[1.02] shadow-lg shadow-indigo-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-3.5 bg-blue-600 rounded-lg font-bold text-lg text-white hover:bg-blue-700 transition transform hover:scale-[1.02] shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
         
-        <div className="mt-6 text-center text-sm text-gray-400">
+        <div className="mt-6 text-center text-sm text-gray-500">
           Don't have an account?{' '}
-          <Link href="/signup" className="text-white hover:text-indigo-400 font-semibold underline decoration-transparent hover:decoration-indigo-400 transition-all">
+          <Link href="/signup" className="text-blue-600 hover:text-blue-700 font-semibold hover:underline transition-all">
             Create one now
           </Link>
         </div>
