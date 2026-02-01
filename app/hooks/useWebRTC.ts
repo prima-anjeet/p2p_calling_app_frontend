@@ -1,8 +1,7 @@
-// Why: Hook for WebRTC logic. Handles peer connection, media streams, offer/answer, ICE. Full cleanup on end. Optimized constraints for no lag: Audio with noise suppression, video adaptive to 720p/30fps. Mobile limitations: Handles CPU/network by using lower bitrate initially; browsers auto-adapt.
 
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Socket } from 'socket.io-client';
 
 interface WebRTCReturn {
@@ -12,6 +11,7 @@ interface WebRTCReturn {
   createOffer: (to: string) => Promise<void>;
   createAnswer: (from: string, offer: RTCSessionDescriptionInit) => Promise<void>;
   addIceCandidate: (candidate: RTCIceCandidateInit) => void;
+  handleAnswer: (answer: RTCSessionDescriptionInit) => Promise<void>;
   cleanup: () => void;
   startLocalStream: (type: 'audio' | 'video') => Promise<void>;
 }
@@ -21,19 +21,17 @@ const useWebRTC = (socket: Socket | null): WebRTCReturn => {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const remotePeerIdRef = useRef<string | null>(null);
-  // Keep track of current stream type
+ 
   const streamTypeRef = useRef<'audio' | 'video'>('video');
 
-  // Ref to hold the latest local stream to access in functions without dependency loops
   const localStreamRef = useRef<MediaStream | null>(null);
 
-  const startLocalStream = async (type: 'audio' | 'video') => {
+  const startLocalStream = useCallback(async (type: 'audio' | 'video') => {
     if (typeof window !== 'undefined' && (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)) {
       console.error("Media devices API not supported.");
       return;
     }
     
-    // Stop existing tracks if any to release camera/mic
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
     }
@@ -60,7 +58,7 @@ const useWebRTC = (socket: Socket | null): WebRTCReturn => {
     } catch (error) {
        console.error("Error accessing media devices:", error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     // Initialize remoteStream on client side
@@ -70,14 +68,14 @@ const useWebRTC = (socket: Socket | null): WebRTCReturn => {
     startLocalStream('video');
 
     return () => cleanup();
-  }, []);
+  }, [startLocalStream]);
 
-  const createPeerConnection = (): RTCPeerConnection => {
+  const createPeerConnection = useCallback((): RTCPeerConnection => {
     // RTCPeerConnection setup
     const iceServers: RTCIceServer[] = JSON.parse(process.env.NEXT_PUBLIC_ICE_SERVERS!);
     const pc = new RTCPeerConnection({ iceServers });
 
-    // Add local tracks - Use REF to ensure we get the latest stream even if closure is stale
+
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {
         if (localStreamRef.current) {
@@ -102,7 +100,6 @@ const useWebRTC = (socket: Socket | null): WebRTCReturn => {
     };
 
 
-    // ICE candidate - Why: Exchange via socket for connectivity.
     pc.onicecandidate = (event) => {
       if (event.candidate && socket && remotePeerIdRef.current) {
         socket.emit('ice-candidate', {
@@ -112,7 +109,7 @@ const useWebRTC = (socket: Socket | null): WebRTCReturn => {
       }
     };
 
-    // Network-aware bitrate - Why: For adaptive quality, no lag. Set initial bitrate; browsers handle adaptation.
+  
     pc.getSenders().forEach(sender => {
       if (sender.track?.kind === 'video') {
         const params = sender.getParameters();
@@ -125,16 +122,12 @@ const useWebRTC = (socket: Socket | null): WebRTCReturn => {
 
     peerConnectionRef.current = pc;
     return pc;
-  };
+  }, [socket]);
 
-  const createOffer = async (to: string) => {
+  const createOffer = useCallback(async (to: string) => {
     remotePeerIdRef.current = to;
     const pc = createPeerConnection();
     
-    // Safety check: if localStream isn't ready, we shouldn't create offer yet?
-    // Actually, createPeerConnection attaches tracks IF localStream exists.
-    // If it doesn't (race condition), we send an offer with no tracks.
-    // Solution: If localStream is available, explicit ensure tracks are added.
     if (localStreamRef.current && pc.getSenders().length === 0) {
        localStreamRef.current.getTracks().forEach(track => {
             if (localStreamRef.current) pc.addTrack(track, localStreamRef.current)
@@ -144,9 +137,9 @@ const useWebRTC = (socket: Socket | null): WebRTCReturn => {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     if (socket) socket.emit('offer', { offer, to });
-  };
+  }, [socket, createPeerConnection]);
 
-  const createAnswer = async (from: string, offer: RTCSessionDescriptionInit) => {
+  const createAnswer = useCallback(async (from: string, offer: RTCSessionDescriptionInit) => {
     remotePeerIdRef.current = from;
     const pc = createPeerConnection();
 
@@ -161,21 +154,27 @@ const useWebRTC = (socket: Socket | null): WebRTCReturn => {
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     if (socket) socket.emit('answer', { answer, to: from });
-  };
+  }, [socket, createPeerConnection]);
 
-  const addIceCandidate = (candidate: RTCIceCandidateInit) => {
+  const addIceCandidate = useCallback((candidate: RTCIceCandidateInit) => {
     if (peerConnectionRef.current) {
       peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
     }
-  };
+  }, []);
 
-  const cleanup = () => {
+  const handleAnswer = useCallback(async (answer: RTCSessionDescriptionInit) => {
+     if (peerConnectionRef.current) {
+        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+     }
+  }, []);
+
+  const cleanup = useCallback(() => {
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
     }
     setRemoteStream(new MediaStream());
-  };
+  }, []);
 
   // Handle unload - Why: Cleanup on tab close/refresh.
   useEffect(() => {
@@ -197,6 +196,7 @@ const useWebRTC = (socket: Socket | null): WebRTCReturn => {
     createOffer, 
     createAnswer, 
     addIceCandidate, 
+    handleAnswer,
     cleanup,
     startLocalStream
   };

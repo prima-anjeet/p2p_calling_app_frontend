@@ -33,7 +33,7 @@ export default function Dashboard() {
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
   const [isCalling, setIsCalling] = useState<boolean>(false);
   const [calleeIdForCancel, setCalleeIdForCancel] = useState<string | null>(null);
-  const { localStream, remoteStream, peerConnection, createOffer, createAnswer, addIceCandidate, cleanup, startLocalStream } = useWebRTC(socket);
+  const { localStream, remoteStream, createOffer, createAnswer, addIceCandidate, handleAnswer, cleanup, startLocalStream } = useWebRTC(socket);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -61,9 +61,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user || !socket) return;
-
-    // ... setupPush omitted ...
-    // Setup push notifications - Why: Request permission and subscribe on load. Essential for offline notifications. Mobile web limitations: Push works on Android Chrome, but iOS Safari has limited support (no push on iOS web until iOS 16.4+ with caveats).
     const setupPush = async () => {
       if ('serviceWorker' in navigator && 'PushManager' in window) {
         try {
@@ -82,8 +79,6 @@ export default function Dashboard() {
       }
     };
     setupPush();
-
-    // Socket listeners
     socket.on('online-users', (users: { userId: string; name: string }[]) => {
       setOnlineUserIds(new Set(users.map(u => u.userId)));
     });
@@ -92,28 +87,24 @@ export default function Dashboard() {
       setIncomingCall(data);
     });
 
-    // Request any pending calls now that listeners are set up
-    // Wait slightly to ensure socket is ready
     const timer = setTimeout(() => {
         socket.emit('check-pending-calls');
     }, 1000);
     
     socket.on('call-cancelled', () => {
         setIncomingCall(null);
-        // Optional: Stop ringtone if playing loop
+
     });
 
     socket.on('call-accepted', ({ calleeId, callId, callType }: { calleeId: string; callId: string; callType?: 'audio'|'video' }) => {
-      setIsCalling(false); // Stop "Calling..." UI
+      setIsCalling(false); 
       setCalleeIdForCancel(null);
-      // The caller initiated the call, so they already set up the stream with correct type in handleCall
-      // But we should store the type in activeCall state
       setActiveCall({ peerId: calleeId, callId, isCaller: true, callType: callType || 'video' });
-      createOffer(calleeId); // Start WebRTC as caller
+      createOffer(calleeId);
     });
 
     socket.on('call-rejected', () => {
-      setIsCalling(false); // Stop "Calling..." UI
+      setIsCalling(false); 
       alert('Call rejected');
     });
 
@@ -122,9 +113,7 @@ export default function Dashboard() {
     });
 
     socket.on('answer', ({ answer }: { answer: RTCSessionDescriptionInit; from: string }) => {
-      if (peerConnection) {
-        peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-      }
+      handleAnswer(answer);
     });
 
     socket.on('ice-candidate', ({ candidate }: { candidate: RTCIceCandidateInit; from: string }) => {
@@ -132,7 +121,7 @@ export default function Dashboard() {
     });
 
     socket.on('call-ended', () => {
-      setIsCalling(false); // Reset calling state just in case
+      setIsCalling(false); 
       cleanup();
       setActiveCall(null);
     });
@@ -140,7 +129,6 @@ export default function Dashboard() {
     return () => {
       clearTimeout(timer);
       socket.off('online-users');
-      // ... cleanup omitted ...
       socket.off('incoming-call');
       socket.off('call-cancelled');
       socket.off('call-accepted');
@@ -150,7 +138,7 @@ export default function Dashboard() {
       socket.off('ice-candidate');
       socket.off('call-ended');
     };
-  }, [user, socket, peerConnection, createOffer, createAnswer, addIceCandidate, cleanup]);
+  }, [user, socket, createOffer, createAnswer, addIceCandidate, handleAnswer, cleanup]);
 
   const handleCall = (calleeId: string, callType: 'audio' | 'video') => {
     if (!socket) return;
@@ -178,7 +166,6 @@ export default function Dashboard() {
     socket.emit('accept-call', { callId: incomingCall.callId, callerId: incomingCall.callerId });
     setActiveCall({ peerId: incomingCall.callerId, callId: incomingCall.callId, isCaller: false, callType: type });
     setIncomingCall(null);
-    // Note: On mobile web, no auto-answer; user must manually accept via UI.
   };
 
   const rejectCall = () => {
@@ -217,7 +204,7 @@ export default function Dashboard() {
       </header>
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl mx-auto">
-        {/* Left Column: Local Preview */}
+      
         <div className="lg:col-span-2 space-y-6">
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-800">
@@ -249,7 +236,7 @@ export default function Dashboard() {
             </div>
         </div>
 
-        {/* Right Column: Online Users */}
+      
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 h-fit">
             <h2 className="text-lg font-semibold mb-4 text-gray-800">Contacts</h2>
             <div className="space-y-2">
@@ -289,7 +276,6 @@ export default function Dashboard() {
   );
 }
 
-// Utility for VAPID key
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
